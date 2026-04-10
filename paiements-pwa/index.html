@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Mes Paiements"/>
+  <meta name="theme-color" content="#0f172a"/>
+  <title>Mes Paiements</title>
+  <style>
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif;background:#f1f5f9}
+    #root{min-height:100vh}
+  </style>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const { useState, useMemo, useEffect } = React;
+const STORAGE_KEY = "mes-paiements-v1";
+
+// ─── Données ───────────────────────────────────────────────────────────────
+const BILLS = [
+  { id:"hydro",        name:"Hydro-Québec",     amount:246.13, days:[1],     account:"Perso",     emoji:"⚡" },
+  { id:"energir",      name:"Energir",           amount:77.28,  days:[1],     account:"Perso",     emoji:"🔥" },
+  { id:"taxes-mun",    name:"Taxes municipales", amount:500.00, days:[15],    account:"Perso",     emoji:"🏛️" },
+  { id:"taxes-sco",    name:"Taxes scolaires",   amount:32.46,  days:[1],     account:"Perso",     emoji:"🏫" },
+  { id:"ebox",         name:"Ebox Internet",     amount:75.00,  days:[15],    account:"Perso",     emoji:"📡" },
+  { id:"assur-vie",    name:"Assurances vie",    amount:227.00, days:[9],     account:"Perso",     emoji:"❤️" },
+  { id:"pret-fen",     name:"Prêt fenêtres",     amount:102.73, days:[1],     account:"Perso",     emoji:"🪟" },
+  { id:"telus-tel",    name:"Telus téléphone",   amount:99.00,  days:[15],    account:"Perso",     emoji:"📱" },
+  { id:"assur-maison", name:"Assurances maison", amount:139.00, days:[1],     account:"Perso",     emoji:"🏠" },
+  { id:"alarme",       name:"Telus Alarme",      amount:45.00,  days:[1],     account:"Perso",     emoji:"🔒" },
+  { id:"assur-auto",   name:"Assurances auto",   amount:175.00, days:[20],    account:"Perso",     emoji:"🚗" },
+  { id:"marge",        name:"Marge de crédit",   amount:100.00, days:[1],     account:"Perso",     emoji:"💳" },
+  { id:"hypotheque",   name:"Hypothèque",         amount:972.02, biweekly:new Date(2026,2,27), account:"Conjoints", emoji:"🏡" },
+  { id:"pmt-auto-1",   name:"Paiement auto",     amount:479.00, days:[1],     account:"Conjoints", emoji:"🚙" },
+  { id:"pmt-auto-20",  name:"Paiement auto",     amount:479.00, days:[20],    account:"Conjoints", emoji:"🚙" },
+];
+
+// ─── Jours fériés QC + Canada ──────────────────────────────────────────────
+function getEaster(y) {
+  const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25);
+  const g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4;
+  const l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);
+  const mo=Math.floor((h+l-7*m+114)/31),da=((h+l-7*m+114)%31)+1;
+  return new Date(y,mo-1,da);
+}
+function prevMonday(y,m,max){const d=new Date(y,m,max);while(d.getDay()!==1)d.setDate(d.getDate()-1);return d;}
+function nextMonday(y,m){const d=new Date(y,m,1);while(d.getDay()!==1)d.setDate(d.getDate()+1);return d;}
+const HC={};
+function getHolidays(y){
+  if(HC[y])return HC[y];const s=new Set(),add=d=>s.add(d.toDateString());
+  add(new Date(y,0,1));
+  const ea=getEaster(y),gf=new Date(ea);gf.setDate(gf.getDate()-2);add(gf);
+  const em=new Date(ea);em.setDate(em.getDate()+1);add(em);
+  add(prevMonday(y,4,25));add(new Date(y,5,24));add(new Date(y,6,1));
+  add(nextMonday(y,8));
+  const fm=nextMonday(y,9),th=new Date(fm);th.setDate(fm.getDate()+7);add(th);
+  add(new Date(y,11,25));add(new Date(y,11,26));
+  HC[y]=s;return s;
+}
+function isHoliday(d){return getHolidays(d.getFullYear()).has(d.toDateString());}
+function isWeekend(d){return d.getDay()===0||d.getDay()===6;}
+function prevBusinessDay(date){
+  const d=new Date(date);
+  while(isWeekend(d)||isHoliday(d))d.setDate(d.getDate()-1);
+  return d;
+}
+function getPeriodEnd(d){
+  const y=d.getFullYear(),m=d.getMonth();
+  const a15=prevBusinessDay(new Date(y,m,15));
+  const p1End=a15.getDate()===15?new Date(y,m,14):a15;
+  return d.getTime()<=p1End.getTime()?p1End:new Date(y,m+1,0);
+}
+
+// ─── Génération des paiements ──────────────────────────────────────────────
+function generatePayments(monthsAhead=3){
+  const today=new Date();today.setHours(0,0,0,0);
+  const payments=[];
+  const rangeStart=new Date(today.getFullYear(),today.getMonth()-1,1);
+  const rangeEnd=new Date(today.getFullYear(),today.getMonth()+monthsAhead+1,0);
+
+  for(let mo=-1;mo<=monthsAhead;mo++){
+    const ref=new Date(today.getFullYear(),today.getMonth()+mo,1);
+    const year=ref.getFullYear(),month=ref.getMonth();
+    BILLS.forEach(bill=>{
+      if(bill.biweekly)return;
+      bill.days.forEach(day=>{
+        const nominal=new Date(year,month,day);
+        const adjusted=prevBusinessDay(new Date(nominal));
+        const wasAdjusted=adjusted.toDateString()!==nominal.toDateString();
+        const key=`${bill.id}-${year}-${month}-${day}`;
+        payments.push({key,billId:bill.id,name:bill.name,amount:bill.amount,
+          account:bill.account,emoji:bill.emoji,nominal,adjusted,wasAdjusted});
+      });
+    });
+  }
+  // Paiements aux 2 semaines
+  BILLS.forEach(bill=>{
+    if(!bill.biweekly)return;
+    const anchor=new Date(bill.biweekly);anchor.setHours(0,0,0,0);
+    let cur=new Date(anchor);
+    while(cur>rangeStart)cur.setDate(cur.getDate()-14);
+    while(cur<rangeStart)cur.setDate(cur.getDate()+14);
+    while(cur<=rangeEnd){
+      const nominal=new Date(cur);
+      const adjusted=prevBusinessDay(new Date(nominal));
+      const wasAdjusted=adjusted.toDateString()!==nominal.toDateString();
+      const key=`${bill.id}-${nominal.getFullYear()}-${nominal.getMonth()}-${nominal.getDate()}`;
+      payments.push({key,billId:bill.id,name:bill.name,amount:bill.amount,
+        account:bill.account,emoji:bill.emoji,nominal,adjusted,wasAdjusted});
+      cur.setDate(cur.getDate()+14);
+    }
+  });
+  return payments.sort((a,b)=>a.adjusted-b.adjusted);
+}
+
+// ─── Utilitaires ──────────────────────────────────────────────────────────
+const $=(n)=>n.toLocaleString("fr-CA",{minimumFractionDigits:2,maximumFractionDigits:2})+" $";
+const fmtDate=(d,opts)=>d.toLocaleDateString("fr-CA",opts);
+function daysUntil(d){const t=new Date();t.setHours(0,0,0,0);return Math.round((d-t)/86400000);}
+
+// ─── App ──────────────────────────────────────────────────────────────────
+function App(){
+  const today=new Date();today.setHours(0,0,0,0);
+  const [paid,setPaid]=useState(()=>{
+    try{const s=localStorage.getItem(STORAGE_KEY);return s?JSON.parse(s):{};}catch{return{};}
+  });
+  useEffect(()=>{
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(paid));}catch{}
+  },[paid]);
+  const [showPast,setShowPast]=useState(false);
+  const [tab,setTab]=useState("upcoming");
+  const END_DATE=new Date(2026,11,31);
+  const allPayments=useMemo(()=>generatePayments(10),[]);
+  const upcoming=allPayments.filter(p=>daysUntil(p.adjusted)>=0&&p.adjusted<=END_DATE);
+  const past=allPayments.filter(p=>daysUntil(p.adjusted)<0);
+
+  const groups=useMemo(()=>{
+    const map={};
+    upcoming.forEach(p=>{
+      const k=p.adjusted.toDateString();
+      if(!map[k])map[k]={date:p.adjusted,items:[]};
+      map[k].items.push(p);
+    });
+    return Object.values(map).sort((a,b)=>a.date-b.date);
+  },[upcoming]);
+
+  const curY=today.getFullYear(),curM=today.getMonth();
+  const p1Start=new Date(curY,curM,1);
+  const payDay15=prevBusinessDay(new Date(curY,curM,15));
+  const p1End=new Date(payDay15.getTime()-86400000);
+  const p1EndDay=p1End.getDate();
+  const p2End=new Date(curY,curM+1,0);
+  const p2StartDayNum=payDay15.getDate();
+  const curMonthLabel=fmtDate(today,{month:"short"});
+  const lastDayOfMonth=p2End.getDate();
+  const p1Pmts=allPayments.filter(p=>p.adjusted>=p1Start&&p.adjusted<=p1End&&!paid[p.key]);
+  const p2Pmts=allPayments.filter(p=>p.adjusted>=payDay15&&p.adjusted<=p2End&&!paid[p.key]);
+  const persoP1=p1Pmts.filter(p=>p.account==="Perso").reduce((s,p)=>s+p.amount,0);
+  const conjP1=p1Pmts.filter(p=>p.account==="Conjoints").reduce((s,p)=>s+p.amount,0);
+  const persoP2=p2Pmts.filter(p=>p.account==="Perso").reduce((s,p)=>s+p.amount,0);
+  const conjP2=p2Pmts.filter(p=>p.account==="Conjoints").reduce((s,p)=>s+p.amount,0);
+
+  const monthlyGroups=useMemo(()=>{
+    const map={};
+    upcoming.forEach(p=>{
+      const label=fmtDate(p.adjusted,{month:"long",year:"numeric"});
+      const key=`${p.adjusted.getFullYear()}-${p.adjusted.getMonth()}`;
+      if(!map[key])map[key]={label,year:p.adjusted.getFullYear(),month:p.adjusted.getMonth(),perso:0,conjoints:0,items:[]};
+      if(p.account==="Perso")map[key].perso+=p.amount;else map[key].conjoints+=p.amount;
+      map[key].items.push(p);
+    });
+    return Object.values(map).sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month);
+  },[upcoming]);
+
+  const [expandedGroups,setExpandedGroups]=useState({});
+  const isExpanded=(ds,d)=>ds in expandedGroups?expandedGroups[ds]:d<=30;
+  const toggleGroup=(ds,cur)=>setExpandedGroups(prev=>({...prev,[ds]:!cur}));
+  const toggle=(key)=>setPaid(prev=>{
+    if(prev[key]){const n={...prev};delete n[key];return n;}
+    return{...prev,[key]:new Date().toISOString()};
+  });
+
+  const S={
+    wrap:{fontFamily:"system-ui,-apple-system,sans-serif",background:"#f1f5f9",minHeight:"100vh",paddingBottom:"env(safe-area-inset-bottom)"},
+    page:{maxWidth:620,margin:"0 auto",padding:"20px 16px 48px"},
+    card:{background:"white",borderRadius:20,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.08)"},
+    pill:(bg,color)=>({background:bg,color,fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:20}),
+    btn:(active)=>({flex:1,padding:"10px 0",border:"none",cursor:"pointer",fontWeight:600,fontSize:13,borderRadius:12,transition:"all .2s",background:active?"#0f172a":"transparent",color:active?"white":"#64748b"}),
+    circleBtn:(done)=>({width:32,height:32,borderRadius:"50%",border:"none",cursor:"pointer",background:done?"#22c55e":"#f1f5f9",color:done?"white":"#94a3b8",fontSize:15,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s",flexShrink:0}),
+  };
+  const urgencyOf=(d)=>
+    d===0?{border:"2px solid #ef4444",bg:"#fef2f2",tagBg:"#fee2e2",tagColor:"#b91c1c",label:"Aujourd'hui !"}:
+    d===1?{border:"2px solid #f97316",bg:"#fff7ed",tagBg:"#ffedd5",tagColor:"#c2410c",label:"Demain"}:
+    d<=7 ?{border:"2px solid #eab308",bg:"#fefce8",tagBg:"#fef9c3",tagColor:"#854d0e",label:`Dans ${d} jours`}:
+          {border:"2px solid #e2e8f0",bg:"white",  tagBg:"#f1f5f9",tagColor:"#475569",label:`Dans ${d} jours`};
+
+  return React.createElement("div",{style:S.wrap},
+    // En-tête
+    React.createElement("div",{style:{background:"linear-gradient(135deg,#1e293b 0%,#0f172a 100%)",color:"white",padding:"28px 20px 28px",paddingTop:"max(28px, env(safe-area-inset-top))"}},
+      React.createElement("div",{style:{maxWidth:620,margin:"0 auto"}},
+        React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:22}},
+          React.createElement("div",null,
+            React.createElement("h1",{style:{margin:0,fontSize:22,fontWeight:800,letterSpacing:-0.5}},"💰 Mes Paiements"),
+            React.createElement("p",{style:{margin:"4px 0 0",color:"#94a3b8",fontSize:13}},fmtDate(today,{weekday:"long",year:"numeric",month:"long",day:"numeric"}))
+          ),
+          React.createElement("div",{style:{background:"rgba(255,255,255,0.08)",borderRadius:12,padding:"6px 12px",fontSize:12,color:"#94a3b8"}},upcoming.filter(p=>!paid[p.key]).length," paiements à venir")
+        ),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}},
+          [{label:"Perso",p1:persoP1,p2:persoP2,faded:"#93c5fd",softBg:"rgba(59,130,246,0.15)",border:"rgba(59,130,246,0.3)"},
+           {label:"Conjoints",p1:conjP1,p2:conjP2,faded:"#6ee7b7",softBg:"rgba(16,185,129,0.15)",border:"rgba(16,185,129,0.3)"}]
+          .map(({label,p1,p2,faded,softBg,border})=>
+            React.createElement("div",{key:label,style:{background:softBg,border:`1px solid ${border}`,borderRadius:18,padding:18}},
+              React.createElement("p",{style:{margin:"0 0 8px",color:faded,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1}},label),
+              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}},
+                React.createElement("span",{style:{color:faded,fontSize:10}},`1–${p1EndDay} ${curMonthLabel}`),
+                React.createElement("span",{style:{color:"white",fontSize:17,fontWeight:800,letterSpacing:-0.5}},$(p1))
+              ),
+              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
+                React.createElement("span",{style:{color:faded,fontSize:10}},`${p2StartDayNum}–${lastDayOfMonth} ${curMonthLabel}`),
+                React.createElement("span",{style:{color:"white",fontSize:17,fontWeight:800,letterSpacing:-0.5}},$(p2))
+              )
+            )
+          )
+        )
+      )
+    ),
+    // Navigation
+    React.createElement("div",{style:{maxWidth:620,margin:"0 auto",padding:"16px 16px 0"}},
+      React.createElement("div",{style:{display:"flex",gap:4,background:"#e2e8f0",borderRadius:14,padding:4}},
+        [["upcoming","📅 À venir"],["summary","📊 Récapitulatif"]].map(([key,label])=>
+          React.createElement("button",{key,style:S.btn(tab===key),onClick:()=>setTab(key)},label)
+        )
+      )
+    ),
+    // Contenu
+    React.createElement("div",{style:S.page},
+      // Onglet À venir
+      tab==="upcoming"&&React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:14,marginTop:4}},
+        groups.map(({date,items})=>{
+          const days=daysUntil(date),u=urgencyOf(days);
+          const unpaid=items.filter(p=>!paid[p.key]);
+          const allDone=unpaid.length===0;
+          const pEnd=getPeriodEnd(date);
+          const regItems=upcoming.filter(p=>p.adjusted>=date&&p.adjusted<=pEnd&&!paid[p.key]);
+          const pAmt=regItems.filter(p=>p.account==="Perso").reduce((s,p)=>s+p.amount,0);
+          const cAmt=regItems.filter(p=>p.account==="Conjoints").reduce((s,p)=>s+p.amount,0);
+          const dateStr=date.toDateString();
+          const expanded=isExpanded(dateStr,days);
+          return React.createElement("div",{key:dateStr,style:{border:u.border,background:u.bg,borderRadius:20,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}},
+            React.createElement("div",{onClick:()=>toggleGroup(dateStr,expanded),style:{padding:"14px 18px",borderBottom:expanded?"1px solid rgba(0,0,0,0.05)":"none",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,cursor:"pointer",userSelect:"none"}},
+              React.createElement("div",null,
+                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
+                  React.createElement("span",{style:{fontWeight:700,fontSize:15,color:"#0f172a"}},fmtDate(date,{weekday:"long",day:"numeric",month:"long"})),
+                  allDone&&React.createElement("span",{style:S.pill("#dcfce7","#15803d")},"✓ Tout payé")
+                ),
+                React.createElement("span",{style:{...S.pill(u.tagBg,u.tagColor),display:"inline-block",marginTop:4}},u.label)
+              ),
+              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12}},
+                React.createElement("div",{style:{textAlign:"right"}},
+                  (pAmt>0||cAmt>0)&&React.createElement("div",{style:{color:"#94a3b8",fontSize:10,marginBottom:2}},"solde au ",fmtDate(pEnd,{day:"numeric",month:"short"})),
+                  pAmt>0&&React.createElement("div",{style:{color:"#1d4ed8",fontSize:13,fontWeight:700}},"Perso : ",$(pAmt)),
+                  cAmt>0&&React.createElement("div",{style:{color:"#047857",fontSize:13,fontWeight:700}},"Conjoints : ",$(cAmt))
+                ),
+                React.createElement("span",{style:{color:"#94a3b8",fontSize:13,flexShrink:0,transition:"transform .2s",display:"inline-block",transform:expanded?"rotate(0deg)":"rotate(-90deg)"}},"▾")
+              )
+            ),
+            expanded&&items.map((p,idx)=>{
+              const done=!!paid[p.key];
+              return React.createElement("div",{key:p.key,style:{padding:"13px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:idx<items.length-1?"1px solid rgba(0,0,0,0.04)":"none",opacity:done?0.45:1,transition:"opacity .2s"}},
+                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12}},
+                  React.createElement("span",{style:{fontSize:22}},p.emoji),
+                  React.createElement("div",null,
+                    React.createElement("p",{style:{margin:0,fontWeight:600,fontSize:14,color:"#0f172a",textDecoration:done?"line-through":"none"}},p.name),
+                    React.createElement("div",{style:{display:"flex",gap:5,marginTop:3,flexWrap:"wrap",alignItems:"center"}},
+                      React.createElement("span",{style:S.pill(p.account==="Perso"?"#dbeafe":"#d1fae5",p.account==="Perso"?"#1e40af":"#065f46")},p.account),
+                      p.wasAdjusted&&React.createElement("span",{style:S.pill("#fef3c7","#92400e")},"📅 Ajusté du ",p.nominal.getDate()),
+                      done&&paid[p.key]&&React.createElement("span",{style:{color:"#16a34a",fontSize:11}},"Payé le ",fmtDate(new Date(paid[p.key]),{day:"numeric",month:"short"}))
+                    )
+                  )
+                ),
+                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                  React.createElement("span",{style:{fontWeight:700,fontSize:15,color:"#0f172a",textDecoration:done?"line-through":"none"}},$(p.amount)),
+                  React.createElement("button",{style:S.circleBtn(done),onClick:()=>toggle(p.key)},done?"✓":"○")
+                )
+              );
+            })
+          );
+        }),
+        past.length>0&&React.createElement("div",{style:{marginTop:8}},
+          React.createElement("button",{onClick:()=>setShowPast(!showPast),style:{width:"100%",padding:"13px 18px",background:"white",border:"2px solid #e2e8f0",borderRadius:16,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:14,fontWeight:600,color:"#475569"}},
+            React.createElement("span",null,"📜 Paiements passés (",past.length,")"),
+            React.createElement("span",{style:{color:"#94a3b8"}},showPast?"▲":"▼")
+          ),
+          showPast&&React.createElement("div",{style:{marginTop:8,...S.card}},
+            [...past].reverse().slice(0,30).map((p,idx)=>{
+              const done=!!paid[p.key];
+              return React.createElement("div",{key:p.key,style:{padding:"11px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:idx<Math.min(past.length,30)-1?"1px solid #f1f5f9":"none"}},
+                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                  React.createElement("span",{style:{fontSize:18}},p.emoji),
+                  React.createElement("div",null,
+                    React.createElement("p",{style:{margin:0,fontSize:13,fontWeight:600,color:"#334155"}},p.name),
+                    React.createElement("p",{style:{margin:0,fontSize:11,color:"#94a3b8"}},
+                      fmtDate(p.adjusted,{day:"numeric",month:"short"}),
+                      p.wasAdjusted&&" · ajusté",
+                      " · ",
+                      React.createElement("span",{style:S.pill(p.account==="Perso"?"#dbeafe":"#d1fae5",p.account==="Perso"?"#1e40af":"#065f46")},p.account)
+                    )
+                  )
+                ),
+                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                  React.createElement("span",{style:{fontSize:13,fontWeight:700,color:"#334155"}},$(p.amount)),
+                  React.createElement("button",{style:{...S.circleBtn(done),width:28,height:28,fontSize:13},onClick:()=>toggle(p.key)},done?"✓":"○")
+                )
+              );
+            })
+          )
+        )
+      ),
+      // Onglet Récapitulatif
+      tab==="summary"&&React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:16,marginTop:4}},
+        React.createElement("div",{style:{...S.card,padding:20}},
+          React.createElement("h3",{style:{margin:"0 0 16px",fontSize:15,fontWeight:700,color:"#0f172a"}},"Totaux mensuels estimés"),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}},
+            [{label:"Perso",bills:BILLS.filter(b=>b.account==="Perso"),bg:"#eff6ff",border:"#bfdbfe",text:"#1e40af"},
+             {label:"Conjoints",bills:BILLS.filter(b=>b.account==="Conjoints"),bg:"#f0fdf4",border:"#bbf7d0",text:"#065f46"}]
+            .map(({label,bills,bg,border,text})=>{
+              const total=bills.reduce((s,b)=>s+b.amount*(b.biweekly?2:b.days.length),0);
+              return React.createElement("div",{key:label,style:{background:bg,border:`1px solid ${border}`,borderRadius:16,padding:16}},
+                React.createElement("p",{style:{margin:"0 0 4px",color:text,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8}},label),
+                React.createElement("p",{style:{margin:"0 0 2px",color:"#0f172a",fontSize:22,fontWeight:800,letterSpacing:-0.5}},$(total)),
+                React.createElement("p",{style:{margin:0,color:"#64748b",fontSize:11}},"/ mois · ",bills.length," factures")
+              );
+            })
+          )
+        ),
+        monthlyGroups.map(({label,perso,conjoints,items})=>
+          React.createElement("div",{key:label,style:S.card},
+            React.createElement("div",{style:{padding:"14px 18px",background:"#f8fafc",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              React.createElement("span",{style:{fontWeight:700,fontSize:14,color:"#0f172a",textTransform:"capitalize"}},label),
+              React.createElement("span",{style:{fontWeight:700,fontSize:14,color:"#0f172a"}},$(perso+conjoints))
+            ),
+            (()=>{
+              const byDate={};
+              items.forEach(p=>{
+                const k=p.adjusted.toDateString();
+                if(!byDate[k])byDate[k]={date:p.adjusted,perso:0,conjoints:0};
+                if(p.account==="Perso")byDate[k].perso+=p.amount;else byDate[k].conjoints+=p.amount;
+              });
+              return Object.values(byDate).sort((a,b)=>a.date-b.date).map((g,idx,arr)=>
+                React.createElement("div",{key:g.date.toDateString(),style:{padding:"11px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:idx<arr.length-1?"1px solid #f8fafc":"none"}},
+                  React.createElement("span",{style:{fontSize:13,fontWeight:600,color:"#334155"}},fmtDate(g.date,{weekday:"short",day:"numeric",month:"short"})),
+                  React.createElement("div",{style:{display:"flex",gap:10}},
+                    g.perso>0&&React.createElement("span",{style:S.pill("#dbeafe","#1e40af")},"Perso ",$(g.perso)),
+                    g.conjoints>0&&React.createElement("span",{style:S.pill("#d1fae5","#065f46")},"Conjoints ",$(g.conjoints))
+                  )
+                )
+              );
+            })()
+          )
+        ),
+        React.createElement("div",{style:S.card},
+          React.createElement("div",{style:{padding:"14px 18px",background:"#f8fafc",borderBottom:"1px solid #f1f5f9"}},
+            React.createElement("span",{style:{fontWeight:700,fontSize:14,color:"#0f172a"}},"Toutes les factures")
+          ),
+          BILLS.map((b,idx)=>
+            React.createElement("div",{key:b.id,style:{padding:"11px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:idx<BILLS.length-1?"1px solid #f8fafc":"none"}},
+              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                React.createElement("span",{style:{fontSize:18}},b.emoji),
+                React.createElement("div",null,
+                  React.createElement("p",{style:{margin:0,fontSize:13,fontWeight:600,color:"#334155"}},b.name),
+                  React.createElement("p",{style:{margin:0,fontSize:11,color:"#94a3b8"}},
+                    b.biweekly?"Aux 2 semaines":`${b.days.map(d=>`le ${d}`).join(" et ")} du mois`
+                  )
+                )
+              ),
+              React.createElement("div",{style:{textAlign:"right"}},
+                React.createElement("span",{style:{fontWeight:700,fontSize:13,color:"#0f172a"}},$(b.amount)),
+                React.createElement("div",{style:{marginTop:2}},
+                  React.createElement("span",{style:S.pill(b.account==="Perso"?"#dbeafe":"#d1fae5",b.account==="Perso"?"#1e40af":"#065f46")},b.account)
+                )
+              )
+            )
+          )
+        )
+      ),
+      React.createElement("p",{style:{textAlign:"center",color:"#cbd5e1",fontSize:11,marginTop:28}},"Dates ajustées aux jours ouvrables · Congés QC + Canada inclus")
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+
+// Service Worker
+if("serviceWorker"in navigator){
+  window.addEventListener("load",()=>{
+    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
