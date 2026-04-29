@@ -1,70 +1,85 @@
-# Contexte projet — Mes Paiements
+# Mes Paiements — État du projet (avril 2026)
 
-Fichier de référence pour Claude (Cowork). À lire au début de chaque session.
+## Repos GitHub
 
-## Structure du projet
+| Repo | Contenu | URL |
+|---|---|---|
+| `hillrichmtl-design/mon-app` | App React desktop + source PWA | https://github.com/hillrichmtl-design/mon-app |
+| `hillrichmtl-design/paiements-app` | PWA iPhone déployée | https://hillrichmtl-design.github.io/paiements-app |
 
-| Fichier | Rôle |
+## Fichiers clés (Mac)
+
+| Fichier | Chemin |
 |---|---|
-| `src/paiements.jsx` | App React desktop (projet Mac) |
-| `push.sh` | Script de push GitHub — à exécuter après chaque session |
+| App React desktop | `~/claude-work/projets/mon-app/src/paiements.jsx` |
+| PWA iPhone | `~/claude-work/projets/mon-app/paiements-pwa/index.html` |
+| Service Worker | `~/claude-work/projets/mon-app/paiements-pwa/sw.js` (v10) |
 
-## Fichiers liés (hors ce repo)
+> **Règle de sync** : tout changement de logique doit être appliqué dans `paiements.jsx` ET `paiements-pwa/index.html` simultanément.
 
-| Artefact | Chemin dans la session VM |
-|---|---|
-| App PWA iPhone | `outputs/paiements-pwa/index.html` |
-| Service Worker | `outputs/paiements-pwa/sw.js` |
-| App HTML standalone | `outputs/paiements.html` |
-| PRD | `outputs/PRD-paiements.md` |
-| Epic / User Stories | `outputs/EPIC-mes-paiements.md` |
-| User Guide | `outputs/guide-mes-paiements.md` |
+## Liste des paiements (BILLS)
 
-## GitHub
+```
+Hydro-Québec       246,13$  Perso      days:[1]
+Energir             77,28$  Perso      days:[1]
+Taxes municipales  500,00$  Perso      days:[15]
+Taxes scolaires     32,46$  Perso      days:[1]
+Ebox Internet       75,00$  Perso      days:[15]
+Assurances vie     227,00$  Perso      days:[9]
+Prêt fenêtres      102,73$  Perso      days:[1]
+Telus téléphone     99,00$  Perso      days:[15]
+Assurances maison  139,00$  Perso      days:[1]
+Telus Alarme        45,00$  Perso      days:[1]
+Assurances auto    175,00$  Perso      days:[20]
+Marge de crédit    100,00$  Perso      days:[1]
+Hypothèque         972,02$  Conjoints  biweekly: new Date(2026,2,27)  ← aux 2 semaines
+Paiement auto      479,00$  Conjoints  days:[1]
+Paiement auto      479,00$  Conjoints  days:[20]
+```
 
-- **Repo React** : `https://github.com/hillrichmtl-design/mon-app.git`
-- **Branch** : `main`
-- **Push** : Richard exécute `bash ~/mon-app/push.sh` depuis son Terminal Mac après chaque session
+## Logique métier critique
 
-> ⚠️ Claude ne peut pas pousser directement vers GitHub depuis la VM (restriction réseau).
-> Après toute modification de code, rappeler à Richard d'exécuter `push.sh`.
+### Périodes P1/P2
+
+```js
+const payDay15 = prevBusinessDay(new Date(curY, curM, 15));
+const p1End = new Date(payDay15.getTime() - 86400000); // veille du jour de paie
+// P1 : 1er → p1End | P2 : payDay15 → fin du mois
+```
+
+### Paiements aux 2 semaines (hypothèque)
+
+```js
+{ id:"hypotheque", biweekly: new Date(2026,2,27), ... }
+// Dans generatePayments() : ancrage 27 mars, +14 jours, ajusté au jour ouvrable précédent
+```
+
+## Push GitHub (depuis Terminal Mac)
+
+```bash
+# Pour mon-app (React + PWA source)
+cd ~/claude-work/projets/mon-app && bash push.sh
+
+# Pour paiements-app (PWA iPhone déployée)
+cd ~/claude-work/projets/paiements-app
+cp ~/claude-work/projets/mon-app/paiements-pwa/index.html .
+cp ~/claude-work/projets/mon-app/paiements-pwa/sw.js .
+git add index.html sw.js && git commit -m "..." && git push origin main
+```
+
+> **Auth GitHub** : géré via `gh auth login` (CLI) ou stocké hors repo. Aucun token en clair dans ce fichier.
 
 ## Jira / Confluence
 
 - **Cloud ID** : `1422516c-a29d-4a3d-80b9-e438edb68651`
-- **Projet** : `SCRUM`
-- **Stories clés** : SCRUM-12 (périodes P1/P2), SCRUM-16 (Service Worker)
-- **Confluence page** : `393217` (Guide d'utilisation)
+- **Projet** : `SCRUM` | **Confluence page** : `393217`
+- **Version app** : 1.0.2 | **Guide/Confluence** : 1.0.3 | **SW** : v10
 
-## Règles de synchronisation (IMPORTANT)
-
-Après **tout** changement de code dans l'un des fichiers, appliquer les corrections
-dans les **trois fichiers** simultanément :
-1. `paiements-pwa/index.html`
-2. `paiements.html`
-3. `src/paiements.jsx` (ce repo)
-
-Puis synchroniser les artefacts (PRD, Epic, User Guide, Jira, Confluence)
-via le skill `anthropic-skills:paiements-sync`.
-
-## Logique métier critique — Périodes de paie
-
-```js
-// CORRECT — à utiliser dans les trois fichiers
-const payDay15 = prevBusinessDay(new Date(curY, curM, 15));
-const p1End = new Date(payDay15.getTime() - 86400000); // veille du jour de paie
-// P1 : du 1er à p1End (inclus)
-// P2 : de payDay15 à fin du mois
-```
-
-**Ne jamais** utiliser `prevBD(15)` directement comme borne de fin de P1 —
-c'est le bug v1.0 qui incluait les paiements du 15 dans P1.
-
-## Versions actuelles
+## Versions
 
 | Composant | Version |
 |---|---|
 | App | v1.0.2 |
-| Service Worker | mes-paiements-v9 |
-| User Guide / Confluence | v1.0.2 |
-| Dernière mise à jour | 22 mars 2026 |
+| Service Worker | mes-paiements-v10 |
+| Guide Confluence | v1.0.3 |
+| Dernière mise à jour | 10 avril 2026 |
