@@ -193,9 +193,7 @@ export default function App() {
   const p1Pmts = allPayments.filter(p => p.adjusted >= p1Start && p.adjusted <= p1End && !paid[p.key]);
   const p2Pmts = allPayments.filter(p => p.adjusted >= payDay15 && p.adjusted <= p2End && !paid[p.key]);
   const persoP1    = p1Pmts.filter(p => p.account === "Perso").reduce((s,p) => s+p.amount, 0);
-  const conjP1     = p1Pmts.filter(p => p.account === "Conjoints").reduce((s,p) => s+p.amount, 0);
   const persoP2    = p2Pmts.filter(p => p.account === "Perso").reduce((s,p) => s+p.amount, 0);
-  const conjP2     = p2Pmts.filter(p => p.account === "Conjoints").reduce((s,p) => s+p.amount, 0);
 
   // Récap mensuel par compte
   const monthlyGroups = useMemo(() => {
@@ -203,9 +201,8 @@ export default function App() {
     upcoming.forEach(p => {
       const label = fmtDate(p.adjusted, { month: "long", year: "numeric" });
       const key = `${p.adjusted.getFullYear()}-${p.adjusted.getMonth()}`;
-      if (!map[key]) map[key] = { label, year: p.adjusted.getFullYear(), month: p.adjusted.getMonth(), perso: 0, conjoints: 0, items: [] };
-      if (p.account === "Perso") map[key].perso += p.amount;
-      else map[key].conjoints += p.amount;
+      if (!map[key]) map[key] = { label, year: p.adjusted.getFullYear(), month: p.adjusted.getMonth(), perso: 0, items: [] };
+      map[key].perso += p.amount;
       map[key].items.push(p);
     });
     return Object.values(map).sort((a,b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
@@ -267,23 +264,16 @@ export default function App() {
           </div>
 
           {/* Cartes comptes */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-            {[
-              { label:"Perso",    p1:persoP1, p2:persoP2, faded:"#93c5fd", softBg:"rgba(59,130,246,0.15)", border:"rgba(59,130,246,0.3)" },
-              { label:"Conjoints",p1:conjP1,  p2:conjP2,  faded:"#6ee7b7", softBg:"rgba(16,185,129,0.15)", border:"rgba(16,185,129,0.3)" },
-            ].map(({ label, p1, p2, faded, softBg, border }) => (
-              <div key={label} style={{ background:softBg, border:`1px solid ${border}`, borderRadius:18, padding:18 }}>
-                <p style={{ margin:"0 0 8px", color:faded, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1 }}>{label}</p>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:5 }}>
-                  <span style={{ color:faded, fontSize:10 }}>1–{p1EndDay} {curMonthLabel}</span>
-                  <span style={{ color:"white", fontSize:17, fontWeight:800, letterSpacing:-0.5 }}>{$(p1)}</span>
-                </div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
-                  <span style={{ color:faded, fontSize:10 }}>{p2StartDayNum}–{lastDayOfMonth} {curMonthLabel}</span>
-                  <span style={{ color:"white", fontSize:17, fontWeight:800, letterSpacing:-0.5 }}>{$(p2)}</span>
-                </div>
-              </div>
-            ))}
+          <div style={{ background:"rgba(59,130,246,0.15)", border:"1px solid rgba(59,130,246,0.3)", borderRadius:18, padding:18 }}>
+            <p style={{ margin:"0 0 8px", color:"#93c5fd", fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1 }}>Perso</p>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:5 }}>
+              <span style={{ color:"#93c5fd", fontSize:10 }}>1–{p1EndDay} {curMonthLabel}</span>
+              <span style={{ color:"white", fontSize:17, fontWeight:800, letterSpacing:-0.5 }}>{$(persoP1)}</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+              <span style={{ color:"#93c5fd", fontSize:10 }}>{p2StartDayNum}–{lastDayOfMonth} {curMonthLabel}</span>
+              <span style={{ color:"white", fontSize:17, fontWeight:800, letterSpacing:-0.5 }}>{$(persoP2)}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -309,7 +299,6 @@ export default function App() {
               const pEnd = getPeriodEnd(date);
               const regItems = upcoming.filter(p => p.adjusted >= date && p.adjusted <= pEnd && !paid[p.key]);
               const pAmt = regItems.filter(p => p.account === "Perso").reduce((s,p) => s+p.amount, 0);
-              const cAmt = regItems.filter(p => p.account === "Conjoints").reduce((s,p) => s+p.amount, 0);
 
               const dateStr = date.toDateString();
               const expanded = isExpanded(dateStr, days);
@@ -332,9 +321,8 @@ export default function App() {
                     </div>
                     <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                       <div style={{ textAlign:"right" }}>
-                        {(pAmt > 0 || cAmt > 0) && <div style={{ color:"#94a3b8", fontSize:10, marginBottom:2 }}>solde au {fmtDate(pEnd, { day:"numeric", month:"short" })}</div>}
-                        {pAmt > 0 && <div style={{ color:"#1d4ed8", fontSize:13, fontWeight:700 }}>Perso : {$(pAmt)}</div>}
-                        {cAmt > 0 && <div style={{ color:"#047857", fontSize:13, fontWeight:700 }}>Conjoints : {$(cAmt)}</div>}
+                        {pAmt > 0 && <div style={{ color:"#94a3b8", fontSize:10, marginBottom:2 }}>solde au {fmtDate(pEnd, { day:"numeric", month:"short" })}</div>}
+                        {pAmt > 0 && <div style={{ color:"#1d4ed8", fontSize:13, fontWeight:700 }}>{$(pAmt)}</div>}
                       </div>
                       <span style={{ color:"#94a3b8", fontSize:13, flexShrink:0, transition:"transform .2s", display:"inline-block", transform: expanded ? "rotate(0deg)" : "rotate(-90deg)" }}>▾</span>
                     </div>
@@ -425,29 +413,24 @@ export default function App() {
             {/* Totaux annuels */}
             <div style={{ ...S.card, padding:20 }}>
               <h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700, color:"#0f172a" }}>Totaux mensuels estimés</h3>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                {[
-                  { label:"Perso", bills: BILLS.filter(b=>b.account==="Perso"), bg:"#eff6ff", border:"#bfdbfe", text:"#1e40af" },
-                  { label:"Conjoints", bills: BILLS.filter(b=>b.account==="Conjoints"), bg:"#f0fdf4", border:"#bbf7d0", text:"#065f46" },
-                ].map(({ label, bills, bg, border, text }) => {
-                  const total = bills.reduce((s,b) => s + b.amount * (b.biweekly ? 2 : b.days.length), 0);
-                  return (
-                    <div key={label} style={{ background:bg, border:`1px solid ${border}`, borderRadius:16, padding:16 }}>
-                      <p style={{ margin:"0 0 4px", color:text, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8 }}>{label}</p>
-                      <p style={{ margin:"0 0 2px", color:"#0f172a", fontSize:22, fontWeight:800, letterSpacing:-0.5 }}>{$(total)}</p>
-                      <p style={{ margin:0, color:"#64748b", fontSize:11 }}>/ mois · {bills.length} factures</p>
-                    </div>
-                  );
-                })}
-              </div>
+              {(() => {
+                const total = BILLS.reduce((s,b) => s + b.amount * (b.biweekly ? 2 : b.days.length), 0);
+                return (
+                  <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:16, padding:16 }}>
+                    <p style={{ margin:"0 0 4px", color:"#1e40af", fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8 }}>Perso</p>
+                    <p style={{ margin:"0 0 2px", color:"#0f172a", fontSize:22, fontWeight:800, letterSpacing:-0.5 }}>{$(total)}</p>
+                    <p style={{ margin:0, color:"#64748b", fontSize:11 }}>/ mois · {BILLS.length} factures</p>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Par mois */}
-            {monthlyGroups.map(({ label, perso, conjoints, items }) => (
+            {monthlyGroups.map(({ label, perso, items }) => (
               <div key={label} style={S.card}>
                 <div style={{ padding:"14px 18px", background:"#f8fafc", borderBottom:"1px solid #f1f5f9", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <span style={{ fontWeight:700, fontSize:14, color:"#0f172a", textTransform:"capitalize" }}>{label}</span>
-                  <span style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>{$(perso+conjoints)}</span>
+                  <span style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>{$(perso)}</span>
                 </div>
 
                 {/* Sous-totaux par date */}
@@ -455,21 +438,15 @@ export default function App() {
                   const byDate = {};
                   items.forEach(p => {
                     const k = p.adjusted.toDateString();
-                    if (!byDate[k]) byDate[k] = { date: p.adjusted, perso:0, conjoints:0 };
-                    if (p.account==="Perso") byDate[k].perso += p.amount;
-                    else byDate[k].conjoints += p.amount;
+                    if (!byDate[k]) byDate[k] = { date: p.adjusted, perso:0 };
+                    byDate[k].perso += p.amount;
                   });
                   return Object.values(byDate).sort((a,b)=>a.date-b.date).map((g, idx, arr) => (
                     <div key={g.date.toDateString()} style={{ padding:"11px 18px", display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom: idx<arr.length-1?"1px solid #f8fafc":"none" }}>
-                      <div>
-                        <span style={{ fontSize:13, fontWeight:600, color:"#334155" }}>
-                          {fmtDate(g.date, { weekday:"short", day:"numeric", month:"short" })}
-                        </span>
-                      </div>
-                      <div style={{ display:"flex", gap:10 }}>
-                        {g.perso > 0 && <span style={S.pill("#dbeafe","#1e40af")}>Perso {$(g.perso)}</span>}
-                        {g.conjoints > 0 && <span style={S.pill("#d1fae5","#065f46")}>Conjoints {$(g.conjoints)}</span>}
-                      </div>
+                      <span style={{ fontSize:13, fontWeight:600, color:"#334155" }}>
+                        {fmtDate(g.date, { weekday:"short", day:"numeric", month:"short" })}
+                      </span>
+                      <span style={S.pill("#dbeafe","#1e40af")}>{$(g.perso)}</span>
                     </div>
                   ));
                 })()}
