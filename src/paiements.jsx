@@ -16,9 +16,9 @@ const BILLS = [
   { id: "alarme",       name: "Telus Alarme",        amount: 45.00,  days: [1],     account: "Perso",     emoji: "🔒" },
   { id: "assur-auto",   name: "Assurances auto",    amount: 175.00, days: [20],    account: "Perso",     emoji: "🚗" },
   { id: "marge",        name: "Marge de crédit",    amount: 100.00, days: [1],     account: "Perso",     emoji: "💳" },
-  { id: "hypotheque",   name: "Hypothèque",          amount: 972.02, biweekly: new Date(2026, 2, 27), account: "Conjoints", emoji: "🏡" },
-  { id: "pmt-auto-1",   name: "Paiement auto",      amount: 479.00, days: [1],     account: "Conjoints", emoji: "🚙" },
-  { id: "pmt-auto-20",  name: "Paiement auto",      amount: 479.00, days: [20],    account: "Conjoints", emoji: "🚙" },
+  { id: "hypotheque",   name: "Hypothèque",          amount: 972.02, biweekly: new Date(2026, 2, 27), account: "Perso",     emoji: "🏡" },
+  { id: "pmt-auto-1",   name: "Paiement auto",      amount: 479.00, days: [1],     account: "Perso",     emoji: "🚙" },
+  { id: "pmt-auto-20",  name: "Paiement auto",      amount: 479.00, days: [20],    account: "Perso",     emoji: "🚙" },
 ];
 
 // ─── Congés QC + Canada ────────────────────────────────────────────────────
